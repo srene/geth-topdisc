@@ -910,6 +910,11 @@ var (
 		Usage:    "Restricts network communication to the given IP networks (CIDR masks)",
 		Category: flags.NetworkingCategory,
 	}
+	DiscoveryTopicFlag = &cli.StringFlag{
+		Name:     "discovery.topic",
+		Usage:    "Registers this discv5 topic (32-byte hex id or a name) and dials only the nodes found by its search",
+		Category: flags.NetworkingCategory,
+	}
 	DNSDiscoveryFlag = &cli.StringFlag{
 		Name:     "discovery.dns",
 		Usage:    "Sets DNS discovery entry points (use \"\" to disable DNS)",
@@ -1926,6 +1931,9 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		} else {
 			cfg.EthDiscoveryURLs = SplitAndTrim(urls)
 		}
+	}
+	if ctx.IsSet(DiscoveryTopicFlag.Name) {
+		cfg.DiscoveryTopic = ctx.String(DiscoveryTopicFlag.Name)
 	}
 	if ctx.Bool(StateSizeTrackingFlag.Name) {
 		cfg.EnableStateSizeTracking = true

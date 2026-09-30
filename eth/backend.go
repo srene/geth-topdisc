@@ -19,11 +19,14 @@ package eth
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +45,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/txpool/locals"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/eth/ethconfig"
 	"github.com/ethereum/go-ethereum/eth/gasprice"
@@ -57,6 +61,7 @@ import (
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/p2p/discover/topicindex"
 	"github.com/ethereum/go-ethereum/p2p/dnsdisc"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/params"
@@ -532,6 +537,11 @@ func (s *Ethereum) updateFilterMapsHeads() {
 func (s *Ethereum) setupDiscovery() error {
 	eth.StartENRUpdater(s.blockchain, s.p2pServer.LocalNode())
 
+	// With a topic set, the topic search is the only dial source.
+	if s.config.DiscoveryTopic != "" {
+		return s.setupTopicDiscovery()
+	}
+
 	// Add eth nodes from DNS.
 	dnsclient := dnsdisc.NewClient(dnsdisc.Config{})
 	if len(s.config.EthDiscoveryURLs) > 0 {
@@ -576,6 +586,54 @@ func (s *Ethereum) setupDiscovery() error {
 	}
 
 	return nil
+}
+
+// setupTopicDiscovery registers the configured topic and feeds the dialer from
+// its search, filtered by fork ID.
+func (s *Ethereum) setupTopicDiscovery() error {
+	disc := s.p2pServer.DiscoveryV5()
+	if disc == nil {
+		return errors.New("discovery.topic requires discv5")
+	}
+	topic := parseDiscoveryTopic(s.config.DiscoveryTopic)
+	disc.RegisterTopic(topic, 0)
+	log.Info("Topic discovery enabled", "topic", topic, "sources", "topic-search only")
+	s.discmix.AddSource(&topicIterator{
+		Iterator: disc.TopicSearch(topic, 0),
+		self:     s.p2pServer.LocalNode().ID(),
+		keep:     eth.NewNodeFilter(s.blockchain),
+	})
+	return nil
+}
+
+// parseDiscoveryTopic takes a 32-byte hex id as is and hashes any other name.
+func parseDiscoveryTopic(s string) topicindex.TopicID {
+	if b, err := hex.DecodeString(strings.TrimPrefix(s, "0x")); err == nil && len(b) == 32 {
+		return topicindex.TopicID(b)
+	}
+	return topicindex.TopicID(crypto.Keccak256Hash([]byte(s)))
+}
+
+// topicIterator logs the topic search results and drops the nodes of other networks.
+type topicIterator struct {
+	enode.Iterator
+	self enode.ID
+	keep func(*enode.Node) bool
+}
+
+func (it *topicIterator) Next() bool {
+	for it.Iterator.Next() {
+		n := it.Node()
+		if n.ID() == it.self {
+			continue
+		}
+		if it.keep(n) {
+			log.Info("Topic search peer kept", "id", n.ID(), "ip", n.IPAddr(), "tcp", n.TCP())
+			return true
+		}
+		log.Info("Topic search peer ignored", "id", n.ID(), "ip", n.IPAddr(), "reason", "fork id")
+	}
+	return false
 }
 
 // Stop implements node.Lifecycle, terminating all internal goroutines used by the

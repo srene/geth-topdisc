@@ -100,6 +100,10 @@ type Config struct {
 	EthDiscoveryURLs  []string
 	SnapDiscoveryURLs []string
 
+	// DiscoveryTopic, when set, makes the discv5 topic search the only source
+	// of dial candidates. It is a 32-byte hex id or a name that is hashed.
+	DiscoveryTopic string `toml:",omitempty"`
+
 	// State options.
 	NoPruning  bool // Whether to disable pruning and flush everything to disk
 	NoPrefetch bool // Whether to disable prefetching and only load state on demand

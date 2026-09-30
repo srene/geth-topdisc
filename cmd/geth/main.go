@@ -132,6 +132,7 @@ var (
 		utils.NodeKeyFileFlag,
 		utils.NodeKeyHexFlag,
 		utils.DNSDiscoveryFlag,
+		utils.DiscoveryTopicFlag,
 		utils.DeveloperFlag,
 		utils.DeveloperGasLimitFlag,
 		utils.DeveloperPeriodFlag,
